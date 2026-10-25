@@ -16,7 +16,7 @@ BUILD_DIR="$PROJECT_DIR/build/local-manual"
 APP_DIR="$PROJECT_DIR/app"
 APK_OUT="$PROJECT_DIR/artifacts/private-space-project-helper.apk"
 VERSION_NAME="${VERSION_NAME:-0.1.0}"
-VERSION_CODE="${VERSION_CODE:-100001}"
+VERSION_CODE="${VERSION_CODE:-100002}"
 
 mkdir -p "$BUILD_DIR/classes" "$BUILD_DIR/generated" "$BUILD_DIR/dex" \
     "$(dirname "$APK_OUT")"

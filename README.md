@@ -17,11 +17,13 @@ ANDROID_DEBUG_KEY_PASSWORD=...
 
 In this checkout, the matching signing key is kept locally at `.secrets/android-signing/release.keystore`. The `.secrets/` directory is excluded from Git. Set `ANDROID_DEBUG_KEYSTORE` to that path and supply both passwords through the environment.
 
-Then run:
+Then run (set a version code higher than the version already installed if needed):
 
 ```sh
 ./build-local.sh
 ```
+
+For example, use `VERSION_CODE=100003 VERSION_NAME=0.1.1 ./build-local.sh` to build an update over the initial `v0.1.0` release.
 
 The signed APK is written to `artifacts/private-space-project-helper.apk`. The signing key must be the same key as earlier installations if you want Android to update the app in place. The test APK previously built from this project used the Android debug certificate with SHA-256 `29e00e98c2637cabe800a4e2eb6b5acd33449ff302f276cf6c24855af92bf1dd`.
 
