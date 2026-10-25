@@ -1,15 +1,22 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.privatespaceprojects">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
-        android:label="Private Space Projects"
+        android:label="Private Space Shortcuts"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="Private Space Projects"
+            android:label="Private Space Shortcuts"
             android:excludeFromRecents="true"
             android:launchMode="singleTop">
             <intent-filter>
@@ -27,61 +34,71 @@
             android:excludeFromRecents="true" />
 
         <activity-alias android:name=".ProjectLink01" android:enabled="false"
-            android:exported="true" android:label="Project link 01"
+            android:exported="true" android:label="Shortcut 01"
+            android:icon="@drawable/ic_project_link"
             android:targetActivity=".ProjectLinkActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
         <activity-alias android:name=".ProjectLink02" android:enabled="false"
-            android:exported="true" android:label="Project link 02"
+            android:exported="true" android:label="Shortcut 02"
+            android:icon="@drawable/ic_project_link"
             android:targetActivity=".ProjectLinkActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
         <activity-alias android:name=".ProjectLink03" android:enabled="false"
-            android:exported="true" android:label="Project link 03"
+            android:exported="true" android:label="Shortcut 03"
+            android:icon="@drawable/ic_project_link"
             android:targetActivity=".ProjectLinkActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
         <activity-alias android:name=".ProjectLink04" android:enabled="false"
-            android:exported="true" android:label="Project link 04"
+            android:exported="true" android:label="Shortcut 04"
+            android:icon="@drawable/ic_project_link"
             android:targetActivity=".ProjectLinkActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
         <activity-alias android:name=".ProjectLink05" android:enabled="false"
-            android:exported="true" android:label="Project link 05"
+            android:exported="true" android:label="Shortcut 05"
+            android:icon="@drawable/ic_project_link"
             android:targetActivity=".ProjectLinkActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
         <activity-alias android:name=".ProjectLink06" android:enabled="false"
-            android:exported="true" android:label="Project link 06"
+            android:exported="true" android:label="Shortcut 06"
+            android:icon="@drawable/ic_project_link"
             android:targetActivity=".ProjectLinkActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
         <activity-alias android:name=".ProjectLink07" android:enabled="false"
-            android:exported="true" android:label="Project link 07"
+            android:exported="true" android:label="Shortcut 07"
+            android:icon="@drawable/ic_project_link"
             android:targetActivity=".ProjectLinkActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
         <activity-alias android:name=".ProjectLink08" android:enabled="false"
-            android:exported="true" android:label="Project link 08"
+            android:exported="true" android:label="Shortcut 08"
+            android:icon="@drawable/ic_project_link"
             android:targetActivity=".ProjectLinkActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
         <activity-alias android:name=".ProjectLink09" android:enabled="false"
-            android:exported="true" android:label="Project link 09"
+            android:exported="true" android:label="Shortcut 09"
+            android:icon="@drawable/ic_project_link"
             android:targetActivity=".ProjectLinkActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
         <activity-alias android:name=".ProjectLink10" android:enabled="false"
-            android:exported="true" android:label="Project link 10"
+            android:exported="true" android:label="Shortcut 10"
+            android:icon="@drawable/ic_project_link"
             android:targetActivity=".ProjectLinkActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" /></intent-filter>

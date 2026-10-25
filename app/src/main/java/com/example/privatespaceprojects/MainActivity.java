@@ -1,9 +1,12 @@
 package com.example.privatespaceprojects;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.pm.ResolveInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ShortcutInfo;
 import android.content.pm.ShortcutManager;
@@ -12,7 +15,11 @@ import android.graphics.Typeface;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PersistableBundle;
+import android.os.SystemClock;
+import android.util.Log;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -22,12 +29,20 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.ArrayAdapter;
 import android.widget.Toast;
 
+import java.net.HttpURLConnection;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -40,12 +55,15 @@ public final class MainActivity extends Activity {
     static final String EXTRA_PENDING = "app.lawnchair.private_share.pending";
     static final String EXTRA_TITLE_REQUIRED = "app.lawnchair.private_share.title_required";
     static final String CHATGPT_PACKAGE = "com.openai.chatgpt";
+    static final String LOG_TAG = "PrivateSpaceShortcuts";
     static final int SLOT_COUNT = 10;
     static final int MAX_URL_LENGTH = 4096;
     private static final Pattern URL_PATTERN = Pattern.compile("https?://[^\\s<>\\\"']+");
 
     private EditText nameInput;
     private EditText urlInput;
+    private Spinner targetAppInput;
+    private List<TargetApp> targetApps = Collections.emptyList();
     private TextView status;
     private LinearLayout savedLinks;
     private int accent;
@@ -97,24 +115,40 @@ public final class MainActivity extends Activity {
         page.setPadding(dp(24), dp(28), dp(24), dp(32));
         scroll.addView(page);
 
-        TextView title = text("Private Space Projects", 27, true);
+        TextView title = text("Private Space Shortcuts", 27, true);
         title.setTextColor(onSurface);
         page.addView(title, margin(0, 0, 0, 8));
-        TextView intro = text("Share a ChatGPT project link here, name it, then add its shortcut from Lawnchair.", 15, false);
+        TextView intro = text("Save a link, choose an app in this Private Space, then add its shortcut from Lawnchair.", 15, false);
         intro.setTextColor(onSurface);
         page.addView(intro, margin(0, 0, 0, 22));
 
-        TextView nameLabel = label("Project name");
+        TextView nameLabel = label("Shortcut name");
         page.addView(nameLabel, margin(0, 0, 0, 6));
         nameInput = input("Name shown on your home screen", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         page.addView(nameInput, margin(0, 0, 0, 16));
 
-        TextView urlLabel = label("ChatGPT project link");
+        TextView urlLabel = label("Link or app deep link");
         page.addView(urlLabel, margin(0, 0, 0, 6));
-        urlInput = input("https://chatgpt.com/...", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        urlInput = input("https://… or an app link", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         urlInput.setMinLines(2);
         urlInput.setGravity(Gravity.TOP | Gravity.START);
         page.addView(urlInput, margin(0, 0, 0, 14));
+
+        TextView appLabel = label("Open with app in this Private Space");
+        page.addView(appLabel, margin(0, 0, 0, 6));
+        targetApps = loadTargetApps();
+        targetAppInput = new Spinner(this);
+        List<TargetApp> appOptions = new ArrayList<>();
+        appOptions.add(new TargetApp("", "Choose an app in this Private Space"));
+        appOptions.addAll(targetApps);
+        ArrayAdapter<TargetApp> appAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, appOptions);
+        appAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        targetAppInput.setAdapter(appAdapter);
+        if (targetApps.isEmpty()) {
+            targetAppInput.setEnabled(false);
+        }
+        page.addView(targetAppInput, margin(0, 0, 0, 16));
 
         Button save = new Button(this);
         save.setText("Save and publish shortcut");
@@ -123,11 +157,13 @@ public final class MainActivity extends Activity {
         save.setOnClickListener(v -> saveProjectLink());
         page.addView(save, margin(0, 0, 0, 12));
 
-        status = text("The link stays in this Private Space. Lawnchair receives only the shortcut name and alias.", 13, false);
+        status = text(targetApps.isEmpty()
+                ? "No launchable apps were found in this Private Space. Install an app here first."
+                : "The link and selected app stay in this Private Space. Lawnchair receives only the shortcut name and alias.", 13, false);
         status.setTextColor(onSurface);
         page.addView(status, margin(0, 0, 0, 28));
 
-        TextView savedHeading = text("Saved project links", 19, true);
+        TextView savedHeading = text("Saved shortcuts", 19, true);
         savedHeading.setTextColor(onSurface);
         page.addView(savedHeading, margin(0, 0, 0, 10));
         savedLinks = new LinearLayout(this);
@@ -164,41 +200,50 @@ public final class MainActivity extends Activity {
     private void acceptSharedLink(Intent intent) {
         if (intent == null || !Intent.ACTION_SEND.equals(intent.getAction())) return;
         CharSequence shared = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
-        String url = extractUrl(shared == null ? null : shared.toString());
+        String url = extractLink(shared == null ? null : shared.toString());
         if (url == null) {
-            status.setText("No web link was found in the shared content. Paste the project link below.");
+            status.setText("No supported link was found in the shared content. Paste it below.");
             return;
         }
         urlInput.setText(url);
         urlInput.setSelection(urlInput.length());
         nameInput.requestFocus();
-        status.setText("Link received. Enter a name and publish its private shortcut.");
+        status.setText("Link received. Choose the app that should open it, then publish the shortcut.");
     }
 
-    private String extractUrl(String shared) {
+    private String extractLink(String shared) {
         if (shared == null) return null;
+        String trimmed = shared.trim();
+        if (isAllowedLink(trimmed)) return trimmed;
         Matcher matcher = URL_PATTERN.matcher(shared);
         while (matcher.find()) {
             String candidate = matcher.group();
             while (!candidate.isEmpty() && ".,;:!?)]}".indexOf(candidate.charAt(candidate.length() - 1)) >= 0) {
                 candidate = candidate.substring(0, candidate.length() - 1);
             }
-            if (isChatGptUrl(candidate)) return candidate;
+            if (isAllowedLink(candidate)) return candidate;
         }
-        String trimmed = shared.trim();
-        return isChatGptUrl(trimmed) ? trimmed : null;
+        return null;
     }
 
-    private boolean isChatGptUrl(String value) {
+    static boolean isAllowedLink(String value) {
         try {
+            if (value == null || value.isEmpty() || value.length() > MAX_URL_LENGTH
+                    || value.matches(".*\\s+.*")) return false;
             Uri uri = Uri.parse(value);
-            String host = uri.getHost();
-            return value.length() <= MAX_URL_LENGTH && uri.isHierarchical()
-                    && "https".equalsIgnoreCase(uri.getScheme()) && host != null
-                    && uri.getUserInfo() == null && (uri.getPort() == -1 || uri.getPort() == 443)
-                    && uri.getEncodedPath() != null && !"/".equals(uri.getEncodedPath())
-                    && (host.equalsIgnoreCase("chatgpt.com")
-                    || host.equalsIgnoreCase("www.chatgpt.com"));
+            String scheme = uri.getScheme();
+            if (scheme == null || !scheme.matches("[A-Za-z][A-Za-z0-9+.-]*")) return false;
+            if ("intent".equalsIgnoreCase(scheme) || "file".equalsIgnoreCase(scheme)
+                    || "content".equalsIgnoreCase(scheme) || "javascript".equalsIgnoreCase(scheme)
+                    || "data".equalsIgnoreCase(scheme)) return false;
+            if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+                return uri.isHierarchical() && uri.getHost() != null
+                        && uri.getUserInfo() == null
+                        && (uri.getPort() == -1
+                        || ("https".equalsIgnoreCase(scheme) && uri.getPort() == 443)
+                        || ("http".equalsIgnoreCase(scheme) && uri.getPort() == 80));
+            }
+            return true;
         } catch (RuntimeException ignored) {
             return false;
         }
@@ -207,14 +252,22 @@ public final class MainActivity extends Activity {
     private void saveProjectLink() {
         String name = nameInput.getText().toString().trim();
         String url = urlInput.getText().toString().trim();
+        TargetApp target = targetApps.isEmpty() ? null
+                : (TargetApp) targetAppInput.getSelectedItem();
         if (name.isEmpty()) {
-            nameInput.setError("Enter a project name");
+            nameInput.setError("Enter a shortcut name");
             nameInput.requestFocus();
             return;
         }
-        if (!isChatGptUrl(url)) {
-            urlInput.setError("Enter an https ChatGPT project link");
+        if (!isAllowedLink(url)) {
+            urlInput.setError("Enter a valid web or app link");
             urlInput.requestFocus();
+            return;
+        }
+        if (target == null || target.packageName.isEmpty()) {
+            status.setText(targetApps.isEmpty()
+                    ? "Install an app in this Private Space before saving a shortcut."
+                    : "Choose the app that should open this link.");
             return;
         }
 
@@ -232,10 +285,12 @@ public final class MainActivity extends Activity {
             boolean stored = getPreferences().edit()
                     .putString(key(slot, "title"), name)
                     .putString(key(slot, "url"), url)
+                    .putString(key(slot, "package"), target.packageName)
                     .putString(key(slot, "id"), id)
                     .commit();
             if (!stored || !publishShortcut(slot, id, name, alias)) {
                 getPreferences().edit().remove(key(slot, "title")).remove(key(slot, "url"))
+                        .remove(key(slot, "package"))
                         .remove(key(slot, "id")).commit();
                 getPackageManager().setComponentEnabledSetting(alias,
                         PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
@@ -249,7 +304,7 @@ public final class MainActivity extends Activity {
         }
         nameInput.setText("");
         urlInput.setText("");
-        status.setText("Shortcut published. Open Lawnchair and add the new private project item.");
+        status.setText("Shortcut published. Link compatibility is checked when you open it in the selected app. Add it from Lawnchair.");
         renderSavedLinks();
     }
 
@@ -303,7 +358,10 @@ public final class MainActivity extends Activity {
             String url = getPreferences().getString(key(slot, "url"), null);
             if (url == null) continue;
             any = true;
-            String name = getPreferences().getString(key(slot, "title"), "Project link");
+            String name = getPreferences().getString(key(slot, "title"), "Saved shortcut");
+            String targetPackage = getPreferences().getString(key(slot, "package"), CHATGPT_PACKAGE);
+            logLinkEvent("saved-slot-" + slot, url, targetPackage);
+            String targetLabel = appLabel(targetPackage);
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
             card.setPadding(dp(14), dp(12), dp(14), dp(10));
@@ -314,13 +372,16 @@ public final class MainActivity extends Activity {
             itemUrl.setTextColor(onSurface);
             itemUrl.setMaxLines(2);
             card.addView(itemTitle);
+            TextView itemTarget = text("Opens with " + targetLabel, 12, false);
+            itemTarget.setTextColor(onSurface);
+            card.addView(itemTarget);
             card.addView(itemUrl, margin(0, 4, 0, 4));
             LinearLayout actions = new LinearLayout(this);
             actions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
             final int selectedSlot = slot;
             Button open = new Button(this);
-            open.setText("Open in ChatGPT");
-            open.setOnClickListener(v -> openInChatGpt(url));
+            open.setText("Open");
+            open.setOnClickListener(v -> openLink(url, targetPackage));
             Button remove = new Button(this);
             remove.setText("Remove");
             remove.setOnClickListener(v -> removeLink(selectedSlot));
@@ -330,7 +391,7 @@ public final class MainActivity extends Activity {
             savedLinks.addView(card, margin(0, 0, 0, 10));
         }
         if (!any) {
-            TextView empty = text("No links saved yet.", 14, false);
+            TextView empty = text("No shortcuts saved yet.", 14, false);
             empty.setTextColor(onSurface);
             savedLinks.addView(empty);
         }
@@ -339,7 +400,7 @@ public final class MainActivity extends Activity {
     private void removeLink(int slot) {
         new AlertDialog.Builder(this)
                 .setTitle("Remove saved link?")
-                .setMessage("Delete its Lawnchair home-screen item first. Existing icons for this link will stop working.")
+                .setMessage("Delete its Lawnchair home-screen item first. Existing icons for this shortcut will stop working.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Remove", (dialog, which) -> removeLinkAfterConfirmation(slot))
                 .show();
@@ -352,21 +413,179 @@ public final class MainActivity extends Activity {
             if (manager != null) manager.removeDynamicShortcuts(Collections.singletonList(id));
         }
         getPreferences().edit().remove(key(slot, "title")).remove(key(slot, "url"))
-                .remove(key(slot, "id")).commit();
+                .remove(key(slot, "package")).remove(key(slot, "id")).commit();
         getPackageManager().setComponentEnabledSetting(aliasFor(slot),
                 PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
-        status.setText("Saved project link removed.");
+        status.setText("Saved shortcut removed.");
         renderSavedLinks();
     }
 
-    private void openInChatGpt(String url) {
+    private void openLink(String url, String targetPackage) {
+        openTargetLink(this, "saved-link", url, targetPackage,
+                networkPermissionDenied -> Toast.makeText(this,
+                        networkPermissionDenied
+                                ? "Allow Network permission for Private Space Shortcuts in Settings, then retry."
+                                : "The selected app cannot open this link or its HTTPS redirects.",
+                        Toast.LENGTH_LONG).show(), () -> {});
+    }
+
+    static void openTargetLink(Activity activity, String stage, String url,
+                               String targetPackage, LinkFailureHandler onFailure,
+                               Runnable onSuccess) {
+        Uri original = Uri.parse(url);
+        logLinkEvent(stage, url, targetPackage);
         try {
-            Intent open = new Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                    .setPackage(CHATGPT_PACKAGE)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(open);
-        } catch (RuntimeException error) {
-            Toast.makeText(this, "ChatGPT could not open this link in this profile.", Toast.LENGTH_LONG).show();
+            startTarget(activity, original, targetPackage);
+            onSuccess.run();
+            return;
+        } catch (ActivityNotFoundException error) {
+            logLinkFailure(stage, targetPackage, error);
+        }
+        if (!"https".equalsIgnoreCase(original.getScheme())) {
+            onFailure.onFailure(false);
+            return;
+        }
+        if (activity.checkSelfPermission(Manifest.permission.INTERNET)
+                != PackageManager.PERMISSION_GRANTED) {
+            Log.w(LOG_TAG, stage + " redirect denied reason=internet-permission");
+            onFailure.onFailure(true);
+            return;
+        }
+        logLinkEvent(stage + "-redirect-check", url, targetPackage);
+        Thread resolver = new Thread(() -> {
+            Uri resolved = resolveHttpsRedirects(stage, original);
+            new Handler(Looper.getMainLooper()).post(() -> {
+                if (activity.isFinishing() || activity.isDestroyed()) return;
+                if (resolved == null || resolved.equals(original)) {
+                    Log.w(LOG_TAG, stage + " redirect unresolved target=" + targetPackage);
+                    onFailure.onFailure(false);
+                    return;
+                }
+                logLinkEvent(stage + "-redirected", resolved.toString(), targetPackage);
+                try {
+                    startTarget(activity, resolved, targetPackage);
+                    onSuccess.run();
+                } catch (RuntimeException error) {
+                    logLinkFailure(stage + "-redirected", targetPackage, error);
+                    onFailure.onFailure(false);
+                }
+            });
+        }, "private-shortcut-link-resolver");
+        resolver.setDaemon(true);
+        resolver.start();
+    }
+
+    private static void startTarget(Activity activity, Uri uri, String targetPackage) {
+        Intent open = new Intent(Intent.ACTION_VIEW, uri)
+                .setPackage(targetPackage)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        activity.startActivity(open);
+    }
+
+    interface LinkFailureHandler {
+        void onFailure(boolean networkPermissionDenied);
+    }
+
+    private static Uri resolveHttpsRedirects(String stage, Uri start) {
+        Uri current = start;
+        boolean followedRedirect = false;
+        Set<String> visited = new HashSet<>();
+        long deadline = SystemClock.elapsedRealtime() + 12000;
+        for (int hop = 0; hop < 6; hop++) {
+            int remaining = (int) (deadline - SystemClock.elapsedRealtime());
+            if (remaining <= 0) return null;
+            if (!visited.add(current.toString())) return null;
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URI(current.toString()).toURL().openConnection();
+                connection.setInstanceFollowRedirects(false);
+                connection.setConnectTimeout(Math.min(4000, remaining));
+                connection.setReadTimeout(Math.min(4000, remaining));
+                connection.setRequestMethod("GET");
+                connection.setUseCaches(false);
+                connection.setAllowUserInteraction(false);
+                int response = connection.getResponseCode();
+                Log.i(LOG_TAG, stage + " redirect hop=" + hop + " status=" + response
+                        + " scheme=" + current.getScheme() + " host=" + current.getHost());
+                if (response < 300 || response >= 400) return followedRedirect ? current : null;
+                String location = connection.getHeaderField("Location");
+                if (location == null || location.trim().isEmpty()) return null;
+                URI nextValue = new URI(current.toString()).resolve(location.trim());
+                Uri next = Uri.parse(nextValue.toString());
+                if (!isAllowedLink(next.toString())
+                        || !"https".equalsIgnoreCase(next.getScheme())) {
+                    Log.w(LOG_TAG, stage + " redirect rejected scheme=" + next.getScheme()
+                            + " host=" + next.getHost());
+                    return null;
+                }
+                Log.i(LOG_TAG, stage + " redirect location scheme=" + next.getScheme()
+                        + " host=" + next.getHost());
+                current = next;
+                followedRedirect = true;
+            } catch (Exception error) {
+                Log.w(LOG_TAG, "redirect resolution failed exception="
+                        + error.getClass().getSimpleName());
+                return null;
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        }
+        return followedRedirect ? current : null;
+    }
+
+    static void logLinkEvent(String stage, String url, String targetPackage) {
+        Uri uri = Uri.parse(url);
+        Log.i(LOG_TAG, stage + " scheme=" + uri.getScheme() + " host=" + uri.getHost()
+                + " target=" + targetPackage);
+    }
+
+    static void logLinkFailure(String stage, String targetPackage, RuntimeException error) {
+        Log.w(LOG_TAG, stage + " failed target=" + targetPackage + " exception="
+                + error.getClass().getSimpleName());
+    }
+
+    private List<TargetApp> loadTargetApps() {
+        Intent launcherIntent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        List<ResolveInfo> resolved = getPackageManager().queryIntentActivities(launcherIntent, 0);
+        List<TargetApp> apps = new ArrayList<>();
+        for (ResolveInfo info : resolved) {
+            if (info.activityInfo == null || info.activityInfo.packageName.equals(getPackageName())) continue;
+            String packageName = info.activityInfo.packageName;
+            TargetApp existing = findTargetApp(apps, packageName);
+            if (existing == null) {
+                CharSequence label = info.loadLabel(getPackageManager());
+                apps.add(new TargetApp(packageName,
+                        label == null ? packageName : label.toString()));
+            }
+        }
+        Collections.sort(apps, Comparator.comparing(app -> app.label.toLowerCase(Locale.ROOT)));
+        return apps;
+    }
+
+    private TargetApp findTargetApp(List<TargetApp> apps, String packageName) {
+        for (TargetApp app : apps) {
+            if (app.packageName.equals(packageName)) return app;
+        }
+        return null;
+    }
+
+    private String appLabel(String packageName) {
+        TargetApp app = findTargetApp(targetApps, packageName);
+        return app == null ? packageName : app.label;
+    }
+
+    private static final class TargetApp {
+        final String packageName;
+        final String label;
+
+        TargetApp(String packageName, String label) {
+            this.packageName = packageName;
+            this.label = label;
+        }
+
+        @Override
+        public String toString() {
+            return label;
         }
     }
 
