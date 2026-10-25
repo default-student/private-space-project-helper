@@ -1,6 +1,7 @@
 /artifacts/
 /build/
 /.gradle/
+/.secrets/
 local.properties
 *.jks
 *.keystore

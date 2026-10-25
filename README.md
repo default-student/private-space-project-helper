@@ -15,6 +15,8 @@ ANDROID_DEBUG_KEYSTORE_PASSWORD=...
 ANDROID_DEBUG_KEY_PASSWORD=...
 ```
 
+In this checkout, the matching signing key is kept locally at `.secrets/android-signing/release.keystore`. The `.secrets/` directory is excluded from Git. Set `ANDROID_DEBUG_KEYSTORE` to that path and supply both passwords through the environment.
+
 Then run:
 
 ```sh
@@ -34,7 +36,7 @@ Configure these repository Actions secrets before publishing:
 - `ANDROID_SIGNING_KEY_ALIAS`: key alias.
 - `ANDROID_SIGNING_KEY_PASSWORD`: key password.
 
-Do not commit the keystore or passwords. For the original local debug key, encode `/home/lh/.android/debug.keystore` as Base64 and add it directly to GitHub's secret editor; avoid printing the encoded value in a terminal or saving it in the repository. If a different key is used, Android will require uninstalling the old app before installing the release APK.
+Do not commit the keystore or passwords. The configured Actions secrets use the same signing key kept locally at `.secrets/android-signing/release.keystore`. If a different key is used, Android will require uninstalling the old app before installing the release APK.
 
 ## Install and update
 
