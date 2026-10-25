@@ -43,14 +43,12 @@ jobs:
 
       - name: Build signed APK
         env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
           ANDROID_DEBUG_KEYSTORE: ${{ runner.temp }}/release.keystore
           ANDROID_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEYSTORE_PASSWORD }}
           ANDROID_DEBUG_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
           ANDROID_DEBUG_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
           VERSION_NAME: ${{ github.ref_type == 'tag' && github.ref_name || format('0.1.{0}', github.run_number) }}
-          VERSION_CODE: ${{ github.run_number }}
-        run: ./build-local.sh
+        run: VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER)) ./build-local.sh
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
