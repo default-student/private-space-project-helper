@@ -4,6 +4,8 @@ This Android helper saves a name, link and target app as a Lawnchair shortcut. T
 
 The package name `com.example.privatespaceprojects`, the `shared-project-` shortcut ID prefix, Lawnchair marker extras and the enabled `ProjectLink01` through `ProjectLink10` activity aliases are part of the Lawnchair integration. Keep them stable. Lawnchair must include the Private Space project-link confirmation support for dynamic shortcuts to become home-screen items.
 
+When Android provides the sharing app as an `android-app://` referrer, the helper preselects that app if it is launchable in the same Private Space. Some share senders also provide AndroidX ShareCompat caller metadata, which can be used as a fallback. If the source cannot be identified or is not installed in this Private Space, choose the target app manually.
+
 The helper accepts HTTP and HTTPS URLs without user information or nonstandard ports, plus app-specific URI schemes. It rejects `intent:`, `file:`, `content:`, `javascript:` and `data:` URIs. For a failed HTTPS deep-link launch, it makes a bounded GET request to read redirect headers only; it does not store the resolved URI or read redirect page scripts. Redirects must remain HTTPS, use standard ports, and pass the same URI validation. Custom app schemes are never fetched. It passes only the URI to the selected package through a newly created `ACTION_VIEW` intent; it does not parse or launch an arbitrary serialized Android intent.
 
 On GrapheneOS, allow the helper's **Network** permission in the Private Space profile if HTTPS redirect resolution is needed. The helper reports this specifically when the permission is denied.
@@ -38,3 +40,5 @@ Pushing a version tag builds and publishes a GitHub Release with `private-space-
 Install the helper and the target app in the Private Space. Enter a shortcut name and a link, choose the app that should open it, and save. Then open Lawnchair and add the new private shortcut from its confirmation flow. Existing ChatGPT project links remain available and default to ChatGPT when they predate the saved target-app setting.
 
 The app list contains launchable apps visible in the current profile. Apps without a launcher activity are not listed. The target app must support the URI supplied for the shortcut.
+
+Newly published shortcuts use the selected app's icon on the home screen, with the helper icon as a fallback if Android cannot load the app icon. The helper refreshes icons for saved shortcuts when it opens. Existing home screen items keep their current icon until they are removed and added again.

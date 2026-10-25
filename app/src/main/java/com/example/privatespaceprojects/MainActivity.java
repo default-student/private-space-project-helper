@@ -10,8 +10,11 @@ import android.content.pm.ResolveInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ShortcutInfo;
 import android.content.pm.ShortcutManager;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Bundle;
@@ -27,6 +30,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
@@ -75,7 +79,8 @@ public final class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         configureColors();
         setContentView(buildContent());
-        acceptSharedLink(getIntent());
+        acceptSharedLink(getIntent(), getReferrer());
+        refreshPublishedShortcutIcons();
         renderSavedLinks();
     }
 
@@ -83,7 +88,8 @@ public final class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        acceptSharedLink(intent);
+        acceptSharedLink(intent, null);
+        refreshPublishedShortcutIcons();
     }
 
     private void configureColors() {
@@ -141,9 +147,7 @@ public final class MainActivity extends Activity {
         List<TargetApp> appOptions = new ArrayList<>();
         appOptions.add(new TargetApp("", "Choose an app in this Private Space"));
         appOptions.addAll(targetApps);
-        ArrayAdapter<TargetApp> appAdapter = new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_item, appOptions);
-        appAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        ArrayAdapter<TargetApp> appAdapter = new TargetAppAdapter(appOptions);
         targetAppInput.setAdapter(appAdapter);
         if (targetApps.isEmpty()) {
             targetAppInput.setEnabled(false);
@@ -197,18 +201,65 @@ public final class MainActivity extends Activity {
         return result;
     }
 
-    private void acceptSharedLink(Intent intent) {
+    private void acceptSharedLink(Intent intent, Uri activityReferrer) {
         if (intent == null || !Intent.ACTION_SEND.equals(intent.getAction())) return;
+        TargetApp sourceApp = sharedFromApp(intent, activityReferrer);
+        if (sourceApp != null) {
+            for (int index = 0; index < targetAppInput.getCount(); index++) {
+                TargetApp option = (TargetApp) targetAppInput.getItemAtPosition(index);
+                if (sourceApp.packageName.equals(option.packageName)) {
+                    targetAppInput.setSelection(index);
+                    break;
+                }
+            }
+        } else {
+            targetAppInput.setSelection(0);
+        }
         CharSequence shared = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
         String url = extractLink(shared == null ? null : shared.toString());
         if (url == null) {
-            status.setText("No supported link was found in the shared content. Paste it below.");
+            status.setText(sourceApp == null
+                    ? "No supported link was found in the shared content. Paste it below and choose an app."
+                    : "Shared from " + sourceApp.label + ". No supported link was found, so paste it below.");
             return;
         }
         urlInput.setText(url);
         urlInput.setSelection(urlInput.length());
         nameInput.requestFocus();
-        status.setText("Link received. Choose the app that should open it, then publish the shortcut.");
+        status.setText(sourceApp == null
+                ? "Link received. Choose the app that should open it, then publish the shortcut."
+                : "Link received from " + sourceApp.label + ". The app was selected; change it if needed, then publish the shortcut.");
+    }
+
+    private TargetApp sharedFromApp(Intent intent, Uri activityReferrer) {
+        List<String> packageCandidates = new ArrayList<>();
+        addReferrerPackage(packageCandidates, activityReferrer);
+        try {
+            addReferrerPackage(packageCandidates,
+                    intent.getParcelableExtra(Intent.EXTRA_REFERRER, Uri.class));
+        } catch (RuntimeException ignored) {
+            // Malformed referrer metadata should leave the app choice empty.
+        }
+        String referrerName = intent.getStringExtra(Intent.EXTRA_REFERRER_NAME);
+        if (referrerName != null) addReferrerPackage(packageCandidates, Uri.parse(referrerName));
+
+        // Some share senders include their package through AndroidX ShareCompat metadata.
+        String callingPackage = intent.getStringExtra("androidx.core.app.EXTRA_CALLING_PACKAGE");
+        if (callingPackage == null) {
+            callingPackage = intent.getStringExtra("android.support.v4.app.EXTRA_CALLING_PACKAGE");
+        }
+        if (callingPackage != null) packageCandidates.add(callingPackage);
+        for (String packageName : packageCandidates) {
+            TargetApp app = findTargetApp(targetApps, packageName);
+            if (app != null) return app;
+        }
+        return null;
+    }
+
+    private void addReferrerPackage(List<String> candidates, Uri referrer) {
+        if (referrer == null || !"android-app".equals(referrer.getScheme())) return;
+        String packageName = referrer.getHost();
+        if (packageName != null && !packageName.isEmpty()) candidates.add(packageName);
     }
 
     private String extractLink(String shared) {
@@ -288,7 +339,7 @@ public final class MainActivity extends Activity {
                     .putString(key(slot, "package"), target.packageName)
                     .putString(key(slot, "id"), id)
                     .commit();
-            if (!stored || !publishShortcut(slot, id, name, alias)) {
+            if (!stored || !publishShortcut(slot, id, name, alias, target)) {
                 getPreferences().edit().remove(key(slot, "title")).remove(key(slot, "url"))
                         .remove(key(slot, "package"))
                         .remove(key(slot, "id")).commit();
@@ -308,7 +359,8 @@ public final class MainActivity extends Activity {
         renderSavedLinks();
     }
 
-    private boolean publishShortcut(int slot, String id, String name, ComponentName alias) {
+    private boolean publishShortcut(int slot, String id, String name, ComponentName alias,
+            TargetApp target) {
         ShortcutManager manager = getSystemService(ShortcutManager.class);
         if (manager == null) return false;
         PersistableBundle marker = new PersistableBundle();
@@ -319,7 +371,7 @@ public final class MainActivity extends Activity {
         ShortcutInfo shortcut = new ShortcutInfo.Builder(this, id)
                 .setShortLabel(name)
                 .setLongLabel(name)
-                .setIcon(Icon.createWithResource(this, R.drawable.ic_project_link))
+                .setIcon(shortcutIcon(target))
                 .setActivity(alias)
                 .setIntent(launch)
                 .setExtras(marker)
@@ -328,6 +380,39 @@ public final class MainActivity extends Activity {
             return manager.addDynamicShortcuts(Collections.singletonList(shortcut));
         } catch (RuntimeException ignored) {
             return false;
+        }
+    }
+
+    private Icon shortcutIcon(TargetApp target) {
+        if (target == null || target.icon == null) {
+            return Icon.createWithResource(this, R.drawable.ic_project_link);
+        }
+        ShortcutManager manager = getSystemService(ShortcutManager.class);
+        int iconLimit = manager == null ? 192
+                : Math.min(manager.getIconMaxWidth(), manager.getIconMaxHeight());
+        if (iconLimit <= 0) {
+            return Icon.createWithResource(this, R.drawable.ic_project_link);
+        }
+        int size = Math.min(iconLimit, 512);
+        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        Drawable.ConstantState iconState = target.icon.getConstantState();
+        Drawable drawable = iconState == null
+                ? target.icon : iconState.newDrawable(getResources(), getTheme());
+        drawable = drawable.mutate();
+        drawable.setBounds(0, 0, size, size);
+        drawable.draw(canvas);
+        return Icon.createWithAdaptiveBitmap(bitmap);
+    }
+
+    private void refreshPublishedShortcutIcons() {
+        for (int slot = 1; slot <= SLOT_COUNT; slot++) {
+            String id = getPreferences().getString(key(slot, "id"), null);
+            String name = getPreferences().getString(key(slot, "title"), null);
+            String packageName = getPreferences().getString(key(slot, "package"), null);
+            TargetApp target = findTargetApp(targetApps, packageName);
+            if (id == null || name == null || target == null) continue;
+            publishShortcut(slot, id, name, aliasFor(slot), target);
         }
     }
 
@@ -546,16 +631,23 @@ public final class MainActivity extends Activity {
 
     private List<TargetApp> loadTargetApps() {
         Intent launcherIntent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        List<ResolveInfo> resolved = getPackageManager().queryIntentActivities(launcherIntent, 0);
+        PackageManager packageManager = getPackageManager();
+        List<ResolveInfo> resolved = packageManager.queryIntentActivities(launcherIntent, 0);
         List<TargetApp> apps = new ArrayList<>();
         for (ResolveInfo info : resolved) {
             if (info.activityInfo == null || info.activityInfo.packageName.equals(getPackageName())) continue;
             String packageName = info.activityInfo.packageName;
             TargetApp existing = findTargetApp(apps, packageName);
             if (existing == null) {
-                CharSequence label = info.loadLabel(getPackageManager());
+                CharSequence label = info.loadLabel(packageManager);
+                Drawable icon = null;
+                try {
+                    icon = info.loadIcon(packageManager);
+                } catch (RuntimeException ignored) {
+                    // Keep the app selectable if its icon cannot be loaded.
+                }
                 apps.add(new TargetApp(packageName,
-                        label == null ? packageName : label.toString()));
+                        label == null ? packageName : label.toString(), icon));
             }
         }
         Collections.sort(apps, Comparator.comparing(app -> app.label.toLowerCase(Locale.ROOT)));
@@ -577,15 +669,84 @@ public final class MainActivity extends Activity {
     private static final class TargetApp {
         final String packageName;
         final String label;
+        final Drawable icon;
 
         TargetApp(String packageName, String label) {
+            this(packageName, label, null);
+        }
+
+        TargetApp(String packageName, String label, Drawable icon) {
             this.packageName = packageName;
             this.label = label;
+            this.icon = icon;
         }
 
         @Override
         public String toString() {
             return label;
+        }
+    }
+
+    private final class TargetAppAdapter extends ArrayAdapter<TargetApp> {
+        TargetAppAdapter(List<TargetApp> apps) {
+            super(MainActivity.this, 0, apps);
+        }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            return appRow(getItem(position), convertView, false);
+        }
+
+        @Override
+        public View getDropDownView(int position, View convertView, ViewGroup parent) {
+            return appRow(getItem(position), convertView, true);
+        }
+    }
+
+    private View appRow(TargetApp app, View convertView, boolean dropdown) {
+        LinearLayout row;
+        ImageView icon;
+        TextView label;
+        if (convertView instanceof LinearLayout
+                && convertView.getTag() instanceof TargetAppRow) {
+            row = (LinearLayout) convertView;
+            TargetAppRow holder = (TargetAppRow) row.getTag();
+            icon = holder.icon;
+            label = holder.label;
+        } else {
+            row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            icon = new ImageView(this);
+            icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            label = text("", 16, false);
+            label.setTextColor(onSurface);
+            row.addView(icon);
+            row.addView(label, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            row.setTag(new TargetAppRow(icon, label));
+        }
+
+        row.setPadding(dp(8), dp(dropdown ? 6 : 2), dp(8), dp(dropdown ? 6 : 2));
+        row.setMinimumHeight(dp(48));
+        LinearLayout.LayoutParams iconParams = (LinearLayout.LayoutParams) icon.getLayoutParams();
+        iconParams.width = dp(dropdown ? 40 : 32);
+        iconParams.height = dp(dropdown ? 40 : 32);
+        iconParams.setMargins(0, 0, app.icon == null ? 0 : dp(12), 0);
+        icon.setLayoutParams(iconParams);
+        icon.setImageDrawable(app.icon);
+        icon.setVisibility(app.icon == null ? View.GONE : View.VISIBLE);
+        label.setText(app.label);
+        return row;
+    }
+
+    private static final class TargetAppRow {
+        final ImageView icon;
+        final TextView label;
+
+        TargetAppRow(ImageView icon, TextView label) {
+            this.icon = icon;
+            this.label = label;
         }
     }
 
