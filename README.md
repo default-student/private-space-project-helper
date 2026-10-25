@@ -33,7 +33,7 @@ The signed APK is written to `artifacts/private-space-project-helper.apk`. The s
 
 ## GitHub releases
 
-Pushing a version tag builds and publishes a GitHub Release with `private-space-project-helper.apk`. You can also run **Build and release APK** manually from the Actions tab; choose whether to publish the APK as a release. Configure the repository Actions secrets for the signing keystore and passwords. Do not commit the keystore or passwords.
+Every push to `master` builds and publishes a GitHub Release with `private-space-project-helper.apk`. Release tags use `v0.1.<run number>`, and their version codes are above locally installed development builds. You can also run **Build and release APK** manually from the Actions tab; choose whether to publish the APK as a release. Configure the repository Actions secrets for the signing keystore and passwords. Do not commit the keystore or passwords.
 
 ## Install and use
 

@@ -2,8 +2,8 @@ name: Build and release APK
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - master
   workflow_dispatch:
     inputs:
       publish_release:
@@ -49,8 +49,9 @@ jobs:
           ANDROID_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEYSTORE_PASSWORD }}
           ANDROID_DEBUG_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
           ANDROID_DEBUG_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
-          VERSION_NAME: ${{ github.ref_type == 'tag' && github.ref_name || format('0.1.{0}', github.run_number) }}
-        run: VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER)) ./build-local.sh
+          VERSION_NAME: ${{ format('0.1.{0}', github.run_number) }}
+        # Keep CI releases above the locally installed development build (100008).
+        run: VERSION_CODE=$((200000 + GITHUB_RUN_NUMBER)) ./build-local.sh
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -60,9 +61,14 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub Release
-        if: github.ref_type == 'tag' || inputs.publish_release
+        if: github.event_name == 'push' || inputs.publish_release
         env:
           GH_TOKEN: ${{ github.token }}
           APK_PATH: artifacts/private-space-project-helper.apk
-          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
-        run: gh release create "$RELEASE_TAG" "$APK_PATH" --title "Private Space Projects $RELEASE_TAG" --generate-notes
+          RELEASE_TAG: ${{ github.event_name == 'push' && format('v0.1.{0}', github.run_number) || format('manual-{0}', github.run_number) }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$APK_PATH" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$APK_PATH" --title "Private Space Projects $RELEASE_TAG" --generate-notes
+          fi
