@@ -46,6 +46,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -60,7 +61,9 @@ public final class MainActivity extends Activity {
     static final String EXTRA_TITLE_REQUIRED = "app.lawnchair.private_share.title_required";
     static final String CHATGPT_PACKAGE = "com.openai.chatgpt";
     static final String LOG_TAG = "PrivateSpaceShortcuts";
-    static final int SLOT_COUNT = 10;
+    static final int LEGACY_SLOT_COUNT = 10;
+    static final String EXTRA_LINK_KEY = "com.example.privatespaceprojects.LINK_KEY";
+    static final String LINK_ALIAS = PUBLISHER + ".ProjectLink";
     static final int MAX_URL_LENGTH = 4096;
     private static final Pattern URL_PATTERN = Pattern.compile("https?://[^\\s<>\\\"']+");
 
@@ -322,31 +325,28 @@ public final class MainActivity extends Activity {
             return;
         }
 
-        int slot = firstFreeSlot();
-        if (slot < 0) {
-            status.setText("All 10 shortcut slots are in use. Remove one saved link first.");
-            return;
-        }
         String id = ID_PREFIX + UUID.randomUUID();
-        ComponentName alias = aliasFor(slot);
+        String linkKey = UUID.randomUUID().toString();
+        ComponentName alias = linkAlias();
         try {
             getPackageManager().setComponentEnabledSetting(alias,
                     PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                     PackageManager.DONT_KILL_APP);
             boolean stored = getPreferences().edit()
-                    .putString(key(slot, "title"), name)
-                    .putString(key(slot, "url"), url)
-                    .putString(key(slot, "package"), target.packageName)
-                    .putString(key(slot, "id"), id)
+                    .putString(linkKey(linkKey, "title"), name)
+                    .putString(linkKey(linkKey, "url"), url)
+                    .putString(linkKey(linkKey, "package"), target.packageName)
+                    .putString(linkKey(linkKey, "id"), id)
                     .commit();
-            if (!stored || !publishShortcut(slot, id, name, alias, target)) {
-                getPreferences().edit().remove(key(slot, "title")).remove(key(slot, "url"))
-                        .remove(key(slot, "package"))
-                        .remove(key(slot, "id")).commit();
-                getPackageManager().setComponentEnabledSetting(alias,
-                        PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                        PackageManager.DONT_KILL_APP);
-                status.setText("Android could not publish the shortcut. Nothing was saved.");
+            if (!stored) {
+                status.setText("Could not save this link.");
+                return;
+            }
+            if (!publishShortcut(id, name, alias, target, linkKey)) {
+                nameInput.setText("");
+                urlInput.setText("");
+                status.setText("Link saved. Android could not publish its Lawnchair shortcut right now.");
+                renderSavedLinks();
                 return;
             }
         } catch (RuntimeException error) {
@@ -359,15 +359,16 @@ public final class MainActivity extends Activity {
         renderSavedLinks();
     }
 
-    private boolean publishShortcut(int slot, String id, String name, ComponentName alias,
-            TargetApp target) {
+    private boolean publishShortcut(String id, String name, ComponentName alias,
+            TargetApp target, String linkKey) {
         ShortcutManager manager = getSystemService(ShortcutManager.class);
         if (manager == null) return false;
         PersistableBundle marker = new PersistableBundle();
         marker.putInt(EXTRA_VERSION, 1);
         marker.putBoolean(EXTRA_PENDING, true);
         marker.putBoolean(EXTRA_TITLE_REQUIRED, false);
-        Intent launch = new Intent(Intent.ACTION_MAIN).setComponent(alias);
+        Intent launch = new Intent(Intent.ACTION_MAIN).setComponent(alias)
+                .putExtra(EXTRA_LINK_KEY, linkKey);
         ShortcutInfo shortcut = new ShortcutInfo.Builder(this, id)
                 .setShortLabel(name)
                 .setLongLabel(name)
@@ -406,21 +407,66 @@ public final class MainActivity extends Activity {
     }
 
     private void refreshPublishedShortcutIcons() {
-        for (int slot = 1; slot <= SLOT_COUNT; slot++) {
-            String id = getPreferences().getString(key(slot, "id"), null);
-            String name = getPreferences().getString(key(slot, "title"), null);
-            String packageName = getPreferences().getString(key(slot, "package"), null);
+        for (String linkKey : savedLinkKeys()) {
+            String prefix = preferencePrefix(linkKey);
+            String id = getPreferences().getString(prefix + "id", null);
+            String name = getPreferences().getString(prefix + "title", null);
+            String packageName = getPreferences().getString(prefix + "package", null);
             TargetApp target = findTargetApp(targetApps, packageName);
             if (id == null || name == null || target == null) continue;
-            publishShortcut(slot, id, name, aliasFor(slot), target);
+            ComponentName alias = isLegacyLinkKey(linkKey) ? aliasFor(Integer.parseInt(linkKey))
+                    : linkAlias();
+            if (!isLegacyLinkKey(linkKey)) {
+                getPackageManager().setComponentEnabledSetting(alias,
+                        PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                        PackageManager.DONT_KILL_APP);
+            }
+            publishShortcut(id, name, alias, target, isLegacyLinkKey(linkKey) ? null : linkKey);
         }
     }
 
-    private int firstFreeSlot() {
-        for (int slot = 1; slot <= SLOT_COUNT; slot++) {
-            if (!getPreferences().contains(key(slot, "url"))) return slot;
+    private List<String> savedLinkKeys() {
+        List<String> result = new ArrayList<>();
+        for (int slot = 1; slot <= LEGACY_SLOT_COUNT; slot++) {
+            if (getPreferences().contains(key(slot, "url"))) result.add(Integer.toString(slot));
         }
-        return -1;
+        for (Map.Entry<String, ?> entry : getPreferences().getAll().entrySet()) {
+            String preferenceKey = entry.getKey();
+            if (!preferenceKey.startsWith("link.") || !preferenceKey.endsWith(".url")) continue;
+            String linkKey = preferenceKey.substring("link.".length(), preferenceKey.length() - ".url".length());
+            if (isValidLinkKey(linkKey)) result.add(linkKey);
+        }
+        return result;
+    }
+
+    private boolean isLegacyLinkKey(String linkKey) {
+        try {
+            int slot = Integer.parseInt(linkKey);
+            return slot >= 1 && slot <= LEGACY_SLOT_COUNT;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+    }
+
+    private boolean isValidLinkKey(String linkKey) {
+        try {
+            UUID.fromString(linkKey);
+            return true;
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    private String linkKey(String linkKey, String field) {
+        return "link." + linkKey + "." + field;
+    }
+
+    private String preferencePrefix(String linkKey) {
+        return isLegacyLinkKey(linkKey) ? "slot." + linkKey + "." : "link." + linkKey + ".";
+    }
+
+    private ComponentName linkAlias() {
+        return new ComponentName(this, LINK_ALIAS);
     }
 
     private ComponentName aliasFor(int slot) {
@@ -439,13 +485,15 @@ public final class MainActivity extends Activity {
         if (savedLinks == null) return;
         savedLinks.removeAllViews();
         boolean any = false;
-        for (int slot = 1; slot <= SLOT_COUNT; slot++) {
-            String url = getPreferences().getString(key(slot, "url"), null);
+        for (String linkKey : savedLinkKeys()) {
+            String url = getPreferences().getString(isLegacyLinkKey(linkKey)
+                    ? key(Integer.parseInt(linkKey), "url") : linkKey(linkKey, "url"), null);
             if (url == null) continue;
             any = true;
-            String name = getPreferences().getString(key(slot, "title"), "Saved shortcut");
-            String targetPackage = getPreferences().getString(key(slot, "package"), CHATGPT_PACKAGE);
-            logLinkEvent("saved-slot-" + slot, url, targetPackage);
+            String prefix = preferencePrefix(linkKey);
+            String name = getPreferences().getString(prefix + "title", "Saved shortcut");
+            String targetPackage = getPreferences().getString(prefix + "package", CHATGPT_PACKAGE);
+            logLinkEvent("saved-link", url, targetPackage);
             String targetLabel = appLabel(targetPackage);
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
@@ -463,13 +511,13 @@ public final class MainActivity extends Activity {
             card.addView(itemUrl, margin(0, 4, 0, 4));
             LinearLayout actions = new LinearLayout(this);
             actions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-            final int selectedSlot = slot;
+            final String selectedLinkKey = linkKey;
             Button open = new Button(this);
             open.setText("Open");
             open.setOnClickListener(v -> openLink(url, targetPackage));
             Button remove = new Button(this);
             remove.setText("Remove");
-            remove.setOnClickListener(v -> removeLink(selectedSlot));
+            remove.setOnClickListener(v -> removeLink(selectedLinkKey));
             actions.addView(open);
             actions.addView(remove);
             card.addView(actions);
@@ -482,25 +530,32 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void removeLink(int slot) {
+    private void removeLink(String linkKey) {
         new AlertDialog.Builder(this)
                 .setTitle("Remove saved link?")
                 .setMessage("Delete its Lawnchair home-screen item first. Existing icons for this shortcut will stop working.")
                 .setNegativeButton("Cancel", null)
-                .setPositiveButton("Remove", (dialog, which) -> removeLinkAfterConfirmation(slot))
+                .setPositiveButton("Remove", (dialog, which) -> removeLinkAfterConfirmation(linkKey))
                 .show();
     }
 
-    private void removeLinkAfterConfirmation(int slot) {
-        String id = getPreferences().getString(key(slot, "id"), null);
+    private void removeLinkAfterConfirmation(String linkKey) {
+        boolean legacy = isLegacyLinkKey(linkKey);
+        String prefix = preferencePrefix(linkKey);
+        String id = getPreferences().getString(prefix + "id", null);
         if (id != null) {
             ShortcutManager manager = getSystemService(ShortcutManager.class);
             if (manager != null) manager.removeDynamicShortcuts(Collections.singletonList(id));
         }
-        getPreferences().edit().remove(key(slot, "title")).remove(key(slot, "url"))
-                .remove(key(slot, "package")).remove(key(slot, "id")).commit();
-        getPackageManager().setComponentEnabledSetting(aliasFor(slot),
-                PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+        getPreferences().edit().remove(prefix + "title").remove(prefix + "url")
+                .remove(prefix + "package").remove(prefix + "id").commit();
+        if (legacy) {
+            getPackageManager().setComponentEnabledSetting(aliasFor(Integer.parseInt(linkKey)),
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+        } else if (savedLinkKeys().stream().noneMatch(key -> !isLegacyLinkKey(key))) {
+            getPackageManager().setComponentEnabledSetting(linkAlias(),
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+        }
         status.setText("Saved shortcut removed.");
         renderSavedLinks();
     }

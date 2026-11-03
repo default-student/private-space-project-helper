@@ -33,6 +33,14 @@
         <activity android:name=".ProjectLinkActivity" android:exported="false"
             android:excludeFromRecents="true" />
 
+        <activity-alias android:name=".ProjectLink" android:enabled="false"
+            android:exported="true" android:label="Private link"
+            android:icon="@drawable/ic_project_link"
+            android:targetActivity=".ProjectLinkActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+
         <activity-alias android:name=".ProjectLink01" android:enabled="false"
             android:exported="true" android:label="Shortcut 01"
             android:icon="@drawable/ic_project_link"

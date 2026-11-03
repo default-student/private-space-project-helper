@@ -2,7 +2,7 @@
 
 This Android helper saves a name, link and target app as a Lawnchair shortcut. The selected app must be installed and launchable in the same Private Space as the helper. Links and target package names stay in that profile's app-private storage. The shortcut first opens the link with `ACTION_VIEW` restricted to the selected package. If that app has no handler for an HTTPS short link, the helper follows up to six HTTPS `Location` redirects, then retries the final URI with the same selected package. It does not fall back to another app or profile.
 
-The package name `com.example.privatespaceprojects`, the `shared-project-` shortcut ID prefix, Lawnchair marker extras and the enabled `ProjectLink01` through `ProjectLink10` activity aliases are part of the Lawnchair integration. Keep them stable. Lawnchair must include the Private Space project-link confirmation support for dynamic shortcuts to become home-screen items.
+The package name `com.example.privatespaceprojects`, the `shared-project-` shortcut ID prefix, Lawnchair marker extras and the `ProjectLink` activity alias are part of the Lawnchair integration. Keep them stable. The `ProjectLink01` through `ProjectLink10` aliases remain for shortcuts created by older versions. Lawnchair must include the Private Space project-link confirmation support for dynamic shortcuts to become home-screen items.
 
 When Android provides the sharing app as an `android-app://` referrer, the helper preselects that app if it is launchable in the same Private Space. Some share senders also provide AndroidX ShareCompat caller metadata, which can be used as a fallback. If the source cannot be identified or is not installed in this Private Space, choose the target app manually.
 
@@ -37,7 +37,7 @@ Every push to `master` builds and publishes a GitHub Release with `private-space
 
 ## Install and use
 
-Install the helper and the target app in the Private Space. Enter a shortcut name and a link, choose the app that should open it, and save. Then open Lawnchair and add the new private shortcut from its confirmation flow. Existing ChatGPT project links remain available and default to ChatGPT when they predate the saved target-app setting.
+Install the helper and the target app in the Private Space. Enter a shortcut name and a link, choose the app that should open it, and save. The helper can store any number of links. Android may limit how many dynamic shortcuts can be published at once; a link remains saved and can still be opened from the helper if publishing its Lawnchair shortcut fails. Open Lawnchair and add published private shortcuts from its confirmation flow. Existing ChatGPT project links remain available and default to ChatGPT when they predate the saved target-app setting.
 
 The app list contains launchable apps visible in the current profile. Apps without a launcher activity are not listed. The target app must support the URI supplied for the shortcut.
 
